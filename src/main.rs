@@ -127,6 +127,10 @@ async fn handle_mqtt_message(db_service: Arc<ShipTrackService>, packet: rumqttc:
             match serde_json::from_slice::<Vec<[f64;2]>>(&payload) {
                 Ok(task) => {
                     info!("taskid: {} ,longitude: {},and latitude: {}",task_id, task[0][0], task[0][1]);
+                    if let Err(e) = db_service.get(&task_id).await {
+                        error!("获取任务失败: {:?}", e);
+                        return;
+                    }
                     match db_service.append_coordinates_and_update(&task_id, task).await {
                         Ok(_) => info!("任务消息处理成功: {}", task_id),
                         Err(e) => warn!("任务消息处理失败: {}", e),

@@ -1,6 +1,7 @@
 use crate::model::ship_track::ShipTrack;
 use bson::{Bson, DateTime};
 use chrono::Utc;
+use log::error;
 use mongodb::results::UpdateResult;
 use mongodb::{bson::{doc, oid::ObjectId}, options::FindOneOptions, Collection};
 
@@ -19,12 +20,16 @@ impl ShipTrackService{
     }
 
     pub async fn get(&self, id: &str) -> mongodb::error::Result<Option<ShipTrack>> {
-        let obj_id = ObjectId::parse_str(id).unwrap();
+        let obj_id = ObjectId::parse_str(id).map_err(|e| {
+            error!("{:?}",e);
+            mongodb::error::Error::custom(e)})?;
         self.collection.find_one(doc! {"_id": obj_id}).await
     }
 
     pub async fn update(&self, id: &str, track: ShipTrack) -> mongodb::error::Result<()> {
-        let obj_id = ObjectId::parse_str(id).unwrap();
+        let obj_id = ObjectId::parse_str(id).map_err(|e| {
+            error!("{:?}",e);
+            mongodb::error::Error::custom(e)})?;
         self.collection.replace_one(doc! {"_id": obj_id}, track).await?;
         Ok(())
     }
@@ -34,7 +39,9 @@ impl ShipTrackService{
         id: &str,
         coordinates_to_add: Vec<[f64; 2]>,
     ) -> mongodb::error::Result<UpdateResult> {
-        let obj_id = ObjectId::parse_str(id).map_err(|e| mongodb::error::Error::custom(format!("Invalid ObjectId: {}", e)))?;
+        let obj_id = ObjectId::parse_str(id).map_err(|e| {
+            error!("{:?}",e);
+            mongodb::error::Error::custom(e)})?;
 
         let current_time: DateTime = Utc::now().into();
         let mut update_document_parts = doc! { "$set": { "lastUpdate": current_time } };
@@ -57,7 +64,9 @@ impl ShipTrackService{
             .await
     }
     pub async fn delete(&self, id: &str) -> mongodb::error::Result<()> {
-        let obj_id = ObjectId::parse_str(id).unwrap();
+        let obj_id = ObjectId::parse_str(id).map_err(|e| {
+            error!("{:?}",e);
+            mongodb::error::Error::custom(e)})?;
         self.collection.delete_one(doc! {"_id": obj_id}).await?;
         Ok(())
     }
