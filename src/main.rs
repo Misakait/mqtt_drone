@@ -1,40 +1,54 @@
 mod model;
 mod service;
 
+use std::env;
+use crate::service::ship_track_service::ShipTrackService;
+use log::{error, info, warn};
+use mongodb::options::ClientOptions;
+use mongodb::Client;
+use pretty_env_logger::env_logger::Env;
+use rumqttc::tokio_rustls::rustls::ClientConfig;
+use rumqttc::{AsyncClient, Event, MqttOptions, QoS, TlsConfiguration, Transport};
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::time::Duration;
-use log::{error, info, warn};
-use mongodb::Client;
-use mongodb::options::ClientOptions;
-use pretty_env_logger::env_logger::Env;
-use rumqttc::{AsyncClient, Event, MqttOptions, QoS, TlsConfiguration, Transport};
-use rumqttc::tokio_rustls::rustls::ClientConfig;
-use serde::{Deserialize, Serialize};
+use dotenv::dotenv;
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
 use tokio::time::sleep;
-use crate::service::ship_track_service::ShipTrackService;
 
 #[tokio::main]
 async fn main() {
+    dotenv().ok();
     // 初始化日志
     pretty_env_logger::formatted_builder()
         .parse_env(Env::default().default_filter_or("info"))
         .init();
+    // 从环境变量读取配置
+    let mongodb_uri = env::var("MONGODB_URI").expect("MONGODB_URI 必须设置");
+    let mqtt_host = env::var("MQTT_HOST").expect("MQTT_HOST 必须设置");
+    let mqtt_port_str = env::var("MQTT_PORT").expect("MQTT_PORT 必须设置");
+    let mqtt_port: u16 = mqtt_port_str
+        .parse()
+        .expect("MQTT_PORT 必须是一个有效的端口号");
+    let mqtt_username = env::var("MQTT_USERNAME").expect("MQTT_USERNAME 必须设置");
+    let mqtt_password = env::var("MQTT_PASSWORD").expect("MQTT_PASSWORD 必须设置");
+    let ca_cert_path = env::var("CA_CERT_PATH").expect("CA_CERT_PATH 必须设置");
+    
     //配置mongodb连接
-    let client_options = ClientOptions::parse("mongodb://localhost:27017").await.unwrap();
+    let client_options = ClientOptions::parse(mongodb_uri).await.unwrap();
     let client = Client::with_options(client_options).unwrap();
     let db = client.database("shipTracking");
     let collection = db.collection::<model::ship_track::ShipTrack>("trackSegments");
     let db_service = Arc::new(ShipTrackService::new(collection));
     // 配置MQTT客户端
-    let mut mqttoptions = MqttOptions::new("rust", "n531cfaf.ala.cn-hangzhou.emqxsl.cn", 8883);
+    let mut mqttoptions = MqttOptions::new(&mqtt_username, mqtt_host, mqtt_port);
     mqttoptions.set_credentials(
-        "misakait",  // 替换为实际用户名
-        "alieencharlotte",  // 替换为实际密码
+        mqtt_username,  // 替换为实际用户名
+        mqtt_password,  // 替换为实际密码
     );
     // 配置TLS
-    let mut ca_file = File::open("ca.crt").await.unwrap();
+    let mut ca_file = File::open(ca_cert_path).await.unwrap();
     let mut ca = Vec::new();
     ca_file.read_to_end(&mut ca).await.expect("TODO: panic message");
     mqttoptions.set_transport(Transport::Tls(TlsConfiguration::Simple {

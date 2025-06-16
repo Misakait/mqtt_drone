@@ -1,9 +1,8 @@
-use bson::{Bson, DateTime};
-use chrono::{Utc};
 use crate::model::ship_track::ShipTrack;
-use mongodb::{bson::{doc, oid::ObjectId}, options::FindOneOptions, Collection};
-use mongodb::options::{FindOneAndUpdateOptions, ReturnDocument, UpdateOptions};
+use bson::{Bson, DateTime};
+use chrono::Utc;
 use mongodb::results::UpdateResult;
+use mongodb::{bson::{doc, oid::ObjectId}, options::FindOneOptions, Collection};
 
 pub struct ShipTrackService {
     pub collection: Collection<ShipTrack>,
