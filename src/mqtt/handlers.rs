@@ -1,11 +1,72 @@
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::broadcast;
 use log::{error, info, warn};
+use rumqttc::{Event, QoS};
 use serde_json;
-
+use tokio::time::sleep;
+use crate::config::AppConfig;
 use crate::model::flight::FlightDto;
+use crate::mqtt::{create_mqtt_client, subscribe_with_retry};
 use crate::service::flight_service::FlightService;
 use crate::service::ship_track_service::ShipTrackService;
+
+
+// 运行MQTT事件循环
+pub async fn run_mqtt_loop(
+    config: AppConfig,
+    track_service: Arc<ShipTrackService>,
+    flight_service: Arc<FlightService>,
+    flight_broadcaster: Arc<broadcast::Sender<String>>,
+) -> Result<(), Box<dyn std::error::Error>> {
+    loop {
+        match create_mqtt_client(
+            &config.mqtt_host,
+            config.mqtt_port,
+            &config.mqtt_username,
+            &config.mqtt_password,
+            &config.ca_cert_path,
+        ).await {
+            Ok((mut client, mut eventloop)) => {
+                info!("MQTT客户端创建成功");
+
+                // 订阅主题
+                subscribe_with_retry(&mut client, "drone/+/location", QoS::AtLeastOnce, 3).await;
+                subscribe_with_retry(&mut client, "drone/+/state", QoS::AtLeastOnce, 3).await;
+
+                // 事件循环处理
+                loop {
+                    match eventloop.poll().await {
+                        Ok(event) => {
+                            match event {
+                                Event::Incoming(packet) => {
+                                    info!("收到消息: {:?}", packet);
+                                    handle_mqtt_message(
+                                        track_service.clone(),
+                                        flight_service.clone(),
+                                        flight_broadcaster.clone(),
+                                        packet
+                                    ).await;
+                                }
+                                Event::Outgoing(_) => {}
+                            }
+                        }
+                        Err(e) => {
+                            error!("事件循环错误: {}", e);
+                            break; // 跳出内层循环，重新创建客户端
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                error!("创建MQTT客户端失败: {}", e);
+            }
+        }
+
+        error!("尝试重新连接...");
+        sleep(Duration::from_secs(5)).await;
+    }
+}
 
 /// 处理MQTT消息的主要分发函数
 pub async fn handle_mqtt_message(

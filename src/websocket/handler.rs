@@ -8,7 +8,7 @@ use log::info;
 pub async fn handle_websocket(socket: WebSocket, flight_broadcaster: Arc<broadcast::Sender<String>>) {
     let (mut sender, mut receiver) = socket.split();
     let mut flight_rx = flight_broadcaster.subscribe();
-
+    
     info!("新的WebSocket连接已建立");
 
     // 创建一个任务来处理从广播通道接收消息并发送到WebSocket

@@ -18,7 +18,7 @@ use tokio::time::sleep;
 use crate::config::AppConfig;
 use crate::service::ship_track_service::ShipTrackService;
 use crate::service::flight_service::FlightService;
-use crate::mqtt::{create_mqtt_client, subscribe_with_retry, handle_mqtt_message};
+use crate::mqtt::{create_mqtt_client, subscribe_with_retry, handle_mqtt_message, run_mqtt_loop};
 use crate::websocket::start_websocket_server;
 
 #[tokio::main]
@@ -53,7 +53,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // 启动WebSocket服务器
     let flight_broadcaster_clone = flight_broadcaster.clone();
     tokio::spawn(async move {
-        start_websocket_server(flight_broadcaster_clone).await;
+        if let Err(e) = start_websocket_server(flight_broadcaster_clone).await {
+            error!("WebSocket服务器启动失败: {}", e);
+        }
     });
     
     // 创建MQTT客户端并开始主循环
@@ -62,58 +64,3 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// 运行MQTT事件循环
-async fn run_mqtt_loop(
-    config: AppConfig,
-    track_service: Arc<ShipTrackService>,
-    flight_service: Arc<FlightService>,
-    flight_broadcaster: Arc<broadcast::Sender<String>>,
-) -> Result<(), Box<dyn std::error::Error>> {
-    loop {
-        match create_mqtt_client(
-            &config.mqtt_host,
-            config.mqtt_port,
-            &config.mqtt_username,
-            &config.mqtt_password,
-            &config.ca_cert_path,
-        ).await {
-            Ok((mut client, mut eventloop)) => {
-                info!("MQTT客户端创建成功");
-                
-                // 订阅主题
-                subscribe_with_retry(&mut client, "drone/+/location", QoS::AtLeastOnce, 3).await;
-                subscribe_with_retry(&mut client, "drone/+/state", QoS::AtLeastOnce, 3).await;
-                
-                // 事件循环处理
-                loop {
-                    match eventloop.poll().await {
-                        Ok(event) => {
-                            match event {
-                                Event::Incoming(packet) => {
-                                    info!("收到消息: {:?}", packet);
-                                    handle_mqtt_message(
-                                        track_service.clone(),
-                                        flight_service.clone(),
-                                        flight_broadcaster.clone(),
-                                        packet
-                                    ).await;
-                                }
-                                Event::Outgoing(_) => {}
-                            }
-                        }
-                        Err(e) => {
-                            error!("事件循环错误: {}", e);
-                            break; // 跳出内层循环，重新创建客户端
-                        }
-                    }
-                }
-            }
-            Err(e) => {
-                error!("创建MQTT客户端失败: {}", e);
-            }
-        }
-        
-        error!("尝试重新连接...");
-        sleep(Duration::from_secs(5)).await;
-    }
-}
