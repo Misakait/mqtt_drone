@@ -18,6 +18,7 @@ pub async fn run_mqtt_loop(
     track_service: Arc<ShipTrackService>,
     flight_service: Arc<FlightService>,
     flight_broadcaster: Arc<broadcast::Sender<String>>,
+    location_broadcaster: Arc<broadcast::Sender<String>>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     loop {
         match create_mqtt_client(
@@ -45,6 +46,7 @@ pub async fn run_mqtt_loop(
                                         track_service.clone(),
                                         flight_service.clone(),
                                         flight_broadcaster.clone(),
+                                        location_broadcaster.clone(),
                                         packet
                                     ).await;
                                 }
@@ -73,6 +75,7 @@ pub async fn handle_mqtt_message(
     track_service: Arc<ShipTrackService>,
     flight_service: Arc<FlightService>,
     flight_broadcaster: Arc<broadcast::Sender<String>>,
+    location_broadcaster: Arc<broadcast::Sender<String>>,
     packet: rumqttc::Packet,
 ) {
     match packet {
@@ -92,7 +95,7 @@ pub async fn handle_mqtt_message(
             match task_type {
                 "location" => {
                     info!("接收到位置更新任务: {}", task_id);
-                    handle_location_message(track_service, task_id, payload).await;
+                    handle_location_message(track_service, task_id, payload, location_broadcaster).await;
                 }
                 "state" => {
                     info!("接收到状态更新任务: {}", task_id);
@@ -150,11 +153,12 @@ pub async fn handle_state_message(
     }
 }
 
-/// 处理位置消息
+/// 处理位置消息并广播到SSE
 pub async fn handle_location_message(
     db_service: Arc<ShipTrackService>,
     task_id: String,
     payload: Vec<u8>,
+    location_broadcaster: Arc<broadcast::Sender<String>>,
 ) {
     // 解析消息内容
     match serde_json::from_slice::<Vec<[f64;2]>>(&payload) {
@@ -164,8 +168,25 @@ pub async fn handle_location_message(
                 error!("获取位置任务失败: {:?}", e);
                 return;
             }
-            match db_service.append_coordinates_and_update(&task_id, task).await {
-                Ok(_) => info!("任务消息处理成功: {}", task_id),
+            match db_service.append_coordinates_and_update(&task_id, task.clone()).await {
+                Ok(_) => {
+                    info!("任务消息处理成功: {}", task_id);
+                    
+                    // 创建包含task_id和位置信息的完整消息结构
+                    let location_message = serde_json::json!({
+                        "longitude": task[0][0],
+                        "latitude": task[0][1],
+                    });
+                    
+                    // 将位置消息广播到所有SSE连接
+                    if let Ok(json_str) = serde_json::to_string(&location_message) {
+                        if let Err(e) = location_broadcaster.send(json_str) {
+                            warn!("广播位置消息失败: {}", e);
+                        } else {
+                            info!("已广播位置消息到SSE客户端");
+                        }
+                    }
+                }
                 Err(e) => warn!("任务消息处理失败: {}", e),
             }
         }

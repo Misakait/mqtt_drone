@@ -3,6 +3,7 @@ mod service;
 mod config;
 mod mqtt;
 mod websocket;
+mod sse;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -20,6 +21,7 @@ use crate::service::ship_track_service::ShipTrackService;
 use crate::service::flight_service::FlightService;
 use crate::mqtt::{create_mqtt_client, subscribe_with_retry, handle_mqtt_message, run_mqtt_loop};
 use crate::websocket::start_websocket_server;
+use crate::sse::start_sse_server;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -38,6 +40,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (flight_tx, _) = broadcast::channel::<String>(100);
     let flight_broadcaster = Arc::new(flight_tx);
     
+    // 创建广播通道用于SSE推送位置消息
+    let (location_tx, _) = broadcast::channel::<String>(100);
+    let location_broadcaster = Arc::new(location_tx);
+
     // 配置MongoDB连接
     let client_options = ClientOptions::parse(&config.mongodb_uri).await?;
     let client = Client::with_options(client_options)?;
@@ -58,9 +64,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     });
     
+    // 启动SSE服务器
+    let location_broadcaster_clone = location_broadcaster.clone();
+    tokio::spawn(async move {
+        if let Err(e) = start_sse_server(location_broadcaster_clone).await {
+            error!("SSE服务器启动失败: {}", e);
+        }
+    });
+
     // 创建MQTT客户端并开始主循环
-    run_mqtt_loop(config, track_service, flight_service, flight_broadcaster).await?;
-    
+    run_mqtt_loop(config, track_service, flight_service, flight_broadcaster, location_broadcaster).await?;
+
     Ok(())
 }
-
