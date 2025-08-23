@@ -44,6 +44,7 @@ impl FlightService {
                 "estimatedRemainingUsageTime": payload.estimated_remaining_usage_time,
                 "cabinTemperature": payload.cabin_temperature,
                 "aircraftAltitude": payload.aircraft_altitude,
+                "airPressure": payload.air_pressure,
                 "distanceToFan": payload.distance_to_fan,
             }
         };

@@ -17,6 +17,8 @@ pub struct Flight {
     pub aircraft_altitude: Vec<f64>,
     #[serde(rename = "distanceToFan")]
     pub distance_to_fan: Vec<f64>,
+    #[serde(rename = "airPressure")]
+    pub air_pressure: Vec<f64>,
 }
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct FlightDto {
@@ -32,4 +34,6 @@ pub struct FlightDto {
     pub aircraft_altitude: f64,
 
     pub distance_to_fan: f64,
+
+    pub air_pressure: f64,
 }
